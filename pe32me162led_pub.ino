@@ -210,7 +210,7 @@ void pulse() {
 }
 
 /**
- * Check that Wifi is up, or connect then not connected.
+ * Check that Wifi is up, or connect when not connected.
  */
 void ensure_wifi() {
   if (WiFi.status() != WL_CONNECTED) {
