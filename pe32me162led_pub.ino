@@ -64,6 +64,8 @@ MqttClient mqttClient(wifiClient);
 
 int was_on;
 int pulse_count;
+int last_pulse_count;
+
 unsigned long last_publish; // millis()
 
 void ensure_wifi();
@@ -93,10 +95,6 @@ void setup()
 
 void loop()
 {
-  // The mqttClient handles perioding polling itself. We call it every
-  // time in the loop to ensure necessary polling gets handled.
-  mqttClient.poll();
-
   // Read from the A0 (analog) port on the ESP8266 A0 op de ESP8266 voor
   // analog values.
   float measured_value = analogRead(A0) * 100.0 / 1024.0; // 0..100
@@ -170,28 +168,44 @@ void pulse() {
   if (last_publish > now) {
     last_publish = 0;
   }
-  if ((now - last_publish) > publish_buffer_time) {
-    ensure_wifi();
-    ensure_mqtt();
+  unsigned long tdelta = (now - last_publish);
 
-    // Record how much time we needed for wifi/mqtt reconnect.
-    // Might be useful at some point.
-    unsigned long conn_time = millis() - now;
+  if (tdelta > publish_buffer_time) {
+    // Calculate watt
+    int pulse_delta = (pulse_count - last_pulse_count);
 
-    Serial.print("pushing ");
-    Serial.println(pulse_count);
+    // Sanity check. If pulse_delta is negative, or if there are more
+    // pulses than 50/s (which is still 10x too much), then don't publish.
+    if (pulse_delta > 0 && pulse_delta < (50 * publish_buffer_time)) {
+      ensure_wifi();
+      ensure_mqtt();
 
-    // Use simple application/x-www-form-urlencoded format.
-    mqttClient.beginMessage(mqtt_topic);
-    mqttClient.print("device_id=");
-    mqttClient.print(guid);
-    mqttClient.print("&watt_hour_pulses=");
-    mqttClient.print(pulse_count);
-    mqttClient.print("&conn_time=");
-    mqttClient.print(conn_time); // how much time we lost on (re)connecting
-    mqttClient.endMessage();
+      // Record how much time we needed for wifi/mqtt reconnect.
+      // Might be useful at some point.
+      unsigned long conn_time = millis() - now;
 
-    last_publish = millis();
+      // (Wh * 3600) == Ws; (Tms / 1000) == Ts; W == Ws / T
+      float watt = (pulse_delta * 3600.0) / (tdelta / 1000.0);
+
+      Serial.print("pushing: count ");
+      Serial.print(pulse_count);
+      Serial.print(", watt ");
+      Serial.println(watt);
+
+      // Use simple application/x-www-form-urlencoded format.
+      mqttClient.beginMessage(mqtt_topic);
+      mqttClient.print("device_id=");
+      mqttClient.print(guid);
+      mqttClient.print("&watt=");
+      mqttClient.print(watt);
+      mqttClient.print("&watt_hour_pulses=");
+      mqttClient.print(pulse_count);
+      mqttClient.print("&conn_time=");
+      mqttClient.print(conn_time); // how much time we lost on (re)connecting
+      mqttClient.endMessage();
+    }
+    last_pulse_count = pulse_count;
+    last_publish = now;
   }
 }
 
