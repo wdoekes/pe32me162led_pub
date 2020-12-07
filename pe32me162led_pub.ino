@@ -118,14 +118,13 @@ void loop()
     // instead, but then we couldn't sleep instead. Sleeping is easier
     // and better for the environment.
     // (*1)
-    // - The human visual system can process 10 to 12 images per second.
-    // - Assume the blinking led pulse is at most 100ms long, but
-    //   probably a lot less.
+    // > In the meter mode [the LED] is used for testing the meter accuracy and
+    // > blinks with a pulse rate 1,000 imp/kWh, the [pulses] width is 40 ms.
     // (*2)
     // - 75Amp * 230V = 17250W
     // - One pulse every Wh, so 17250W / 3600 = 4.8Wh
     // - So at most 1/4.8 Wh/s = max. 5 pulses
-    delay(100);
+    delay(100); // 40ms would be "just" enough
 
     // Measure value again. It should be OFF now, after the delay().
     measured_value = analogRead(A0) * 100.0 / 1024.0; // 0..100
