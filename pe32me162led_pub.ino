@@ -1,9 +1,9 @@
 /**
- * pe32me162led // Count LED pulses from ISKRA ME-162, export to MQTT.
+ * pe32me162led_pub // Count LED pulses from ISKRA ME-162, export to MQTT
  *
  * Components:
  * - ISKRA ME-162 electronic meter with pulse LED
- * - ESP8266MOD+Wifi
+ * - ESP8266 (NodeMCU, with Wifi)
  * - Grove system (Arduino building block) analog Light Sensor
  * - attach 3VC<->VCC, GND<->GND, A0<->SIG (ignore NC/not connected)
  *
@@ -18,12 +18,12 @@
  * Configuration:
  * - Set Wifi SSID+password in config.h
  * - Set MQTT broker details in config.h
- * - Set up broker and read pulse values from there; by taking the pulse
- *   delta, converting to Watt and storing it. (Take the Wh delta,
- *   divide by T delta, and multiply by 3600.)
+ * - Set up broker and read pulse values from there
  */
 #include <ArduinoMqttClient.h>
 #include <ESP8266WiFi.h>
+
+const int SERMON_BAUD = 115200; // serial monitor for debugging
 
 /* In config.h, you should have:
 const char wifi_ssid[] = "<ssid>";
@@ -34,22 +34,29 @@ const char mqtt_topic[] = "some/topic";
 */
 #include "config.h"
 
+static void ensure_wifi();
+static void ensure_mqtt();
+
+static void pulse();
+
 #define VERSION "v0"
 //#define DEBUG
 
 /* We use the guid to store something unique to identify the device by.
- * For now, we'll populate it with the ESP8266 Wifi MAC address. */
-char guid[24]; // "EUI48:11:22:33:44:55:66"
+ * For now, we'll populate it with the ESP8266 Wifi MAC address,
+ * which should be available. */
+char guid[24] = "<no_wifi_found>"; // "EUI48:11:22:33:44:55:66"
 
 /* For the analog pulse detection, using the Arduino Grove (plug & play)
- * Light Sensor, we measure the following values:
+ * Light Sensor, we measured the following values:
  *
- * 0..1023 | 0..100 | resistance K | (resistance from ((1023-V)*10/V))
- * --------+--------+--------------+----------------------------------
- *       3 |   <1.0 |         3400 | Dark (lowest value)
- *     200 |   20.0 |           41 | Ambient light
- *     400 |   40.0 |           16 | Laptop display light
- *     654 |   64.0 |            6 | Bright light (highest value)
+ * integer |   real |   resistance K | conditions
+ * 0..1023 | 0..100 | (1023-x)*10/x) |
+ * --------+--------+----------------+----------------------------------
+ *       3 |   <1.0 |           3400 | Dark (lowest value)
+ *     200 |   20.0 |             41 | Ambient light
+ *     400 |   40.0 |             16 | Laptop display light
+ *     654 |   64.0 |              6 | Bright light (highest value)
  *
  * We use the threshold_value of 3.0 (real), resistance 320K, to detect
  * a weak red LED light. (The real value 5.0 detected false negatives.)
@@ -68,24 +75,19 @@ int last_pulse_count;
 
 unsigned long last_publish; // millis()
 
-void ensure_wifi();
-void ensure_mqtt();
-void pulse();
-
 void setup()
 {
-  strncpy(guid, "undefined_guid", sizeof(guid) - 1);
-
-  // Setup (should we skip this if !DEBUG?)
-  Serial.begin(115200);
-  delay(500);
+  // Setup serial (should we skip this if !DEBUG?)
+  Serial.begin(SERMON_BAUD);
+  while (!Serial)
+    delay(0);
 
   // Setup GUID
   strncpy(guid, "EUI48:", 6);
   strncpy(guid + 6, WiFi.macAddress().c_str(), sizeof(guid) - (6 + 1));
 
   // Welcome message
-  Serial.print("Booted pe32me162led " VERSION " guid ");
+  Serial.print(F("Booted pe32me162led_pub " VERSION " guid "));
   Serial.println(guid);
 
   // Initial connect
@@ -119,7 +121,7 @@ void loop()
     // and better for the environment.
     // (*1)
     // > In the meter mode [the LED] is used for testing the meter accuracy and
-    // > blinks with a pulse rate 1,000 imp/kWh, the [pulses] width is 40 ms.
+    // > blinks with a pulse rate 1000 imp/kWh, the [pulse's] width is 40 ms.
     // (*2)
     // - 75Amp * 230V = 17250W
     // - One pulse every Wh, so 17250W / 3600 = 4.8Wh
@@ -149,7 +151,8 @@ void loop()
  * Record a pulse, and send updated counter to MQTT when we've exceeded
  * the buffer time.
  */
-void pulse() {
+static void pulse()
+{
   ++pulse_count;
   if (pulse_count > 0xffffff) {
     // Reset after 24bits; it will happen at device reset, or when we
@@ -211,7 +214,8 @@ void pulse() {
 /**
  * Check that Wifi is up, or connect when not connected.
  */
-void ensure_wifi() {
+static void ensure_wifi()
+{
   if (WiFi.status() != WL_CONNECTED) {
     WiFi.begin(wifi_ssid, wifi_password);
     for (int i = 30; i >= 0; --i) {
@@ -237,7 +241,8 @@ void ensure_wifi() {
 /**
  * Check that the MQTT connection is up or connect if it isn't.
  */
-void ensure_mqtt() {
+static void ensure_mqtt()
+{
   mqttClient.poll();
   if (!mqttClient.connected()) {
     if (mqttClient.connect(mqtt_broker, mqtt_port)) {
@@ -252,4 +257,4 @@ void ensure_mqtt() {
   }
 }
 
-// vim: set ts=8 sw=2 sts=2 et ai:
+/* vim: set ts=8 sw=2 sts=2 et ai: */
