@@ -20,10 +20,14 @@
  * - Set MQTT broker details in config.h
  * - Set up broker and read pulse values from there
  */
-#include <ArduinoMqttClient.h>
-#include <ESP8266WiFi.h>
+#if defined(ARDUINO_ARCH_ESP8266)
+# include <ArduinoMqttClient.h>
+# include <ESP8266WiFi.h>
+# define HAVE_MQTT
+# define HAVE_WIFI
+#endif
 
-const int SERMON_BAUD = 115200; // serial monitor for debugging
+const long SERMON_BAUD = 115200L; // serial monitor for debugging
 
 /* In config.h, you should have:
 const char wifi_ssid[] = "<ssid>";
@@ -64,14 +68,16 @@ char guid[24] = "<no_wifi_found>"; // "EUI48:11:22:33:44:55:66"
 const float threshold_value = 3.0;
 
 // Buffer counter until N milliseconds have passed.
-const int publish_buffer_time = 60 * 1000; // 60s
+const unsigned long publish_buffer_time = 60 * 1000L; // 60s
 
+#ifdef HAVE_WIFI
 WiFiClient wifiClient;
 MqttClient mqttClient(wifiClient);
+#endif
 
 int was_on;
-int pulse_count;
-int last_pulse_count;
+long pulse_count;
+long last_pulse_count;
 
 unsigned long last_publish; // millis()
 
@@ -83,8 +89,10 @@ void setup()
     delay(0);
 
   // Setup GUID
+#ifdef HAVE_WIFI
   strncpy(guid, "EUI48:", 6);
   strncpy(guid + 6, WiFi.macAddress().c_str(), sizeof(guid) - (6 + 1));
+#endif
 
   // Welcome message
   Serial.print(F("Booted pe32me162led_pub " VERSION " guid "));
@@ -174,11 +182,11 @@ static void pulse()
 
   if (tdelta > publish_buffer_time) {
     // Calculate watt
-    int pulse_delta = (pulse_count - last_pulse_count);
+    unsigned long pulse_delta = (pulse_count - last_pulse_count);
 
-    // Sanity check. If pulse_delta is negative, or if there are more
-    // pulses than 50/s (which is still 10x too much), then don't publish.
-    if (pulse_delta > 0 && pulse_delta < (50 * publish_buffer_time)) {
+    // If there are more pulses than 50/s (which is still 10x too much),
+    // then don't publish.
+    if (pulse_delta < (50 * publish_buffer_time)) {
       ensure_wifi();
       ensure_mqtt();
 
@@ -192,8 +200,11 @@ static void pulse()
       Serial.print("pushing: count ");
       Serial.print(pulse_count);
       Serial.print(", watt ");
-      Serial.println(watt);
+      Serial.print(watt);
+      Serial.print(", conn time");
+      Serial.println(conn_time);
 
+#ifdef HAVE_MQTT
       // Use simple application/x-www-form-urlencoded format.
       mqttClient.beginMessage(mqtt_topic);
       mqttClient.print("device_id=");
@@ -205,6 +216,7 @@ static void pulse()
       mqttClient.print("&conn_time=");
       mqttClient.print(conn_time); // how much time we lost on (re)connecting
       mqttClient.endMessage();
+#endif
     }
     last_pulse_count = pulse_count;
     last_publish = now;
@@ -216,6 +228,7 @@ static void pulse()
  */
 static void ensure_wifi()
 {
+#ifdef HAVE_WIFI
   if (WiFi.status() != WL_CONNECTED) {
     WiFi.begin(wifi_ssid, wifi_password);
     for (int i = 30; i >= 0; --i) {
@@ -236,6 +249,7 @@ static void ensure_wifi()
       Serial.println("\".");
     }
   }
+#endif
 }
 
 /**
@@ -243,6 +257,7 @@ static void ensure_wifi()
  */
 static void ensure_mqtt()
 {
+#ifdef HAVE_MQTT
   mqttClient.poll();
   if (!mqttClient.connected()) {
     if (mqttClient.connect(mqtt_broker, mqtt_port)) {
@@ -255,6 +270,7 @@ static void ensure_mqtt()
       Serial.println(mqttClient.connectError());
     }
   }
+#endif
 }
 
 /* vim: set ts=8 sw=2 sts=2 et ai: */
